@@ -1,0 +1,12 @@
+# Real compose files contain site-specific details (IPs, networks, hostnames,
+# cert paths). opensign/ ships a docker-compose.yml.sample instead; copy it to
+# docker-compose.yml locally and fill in your own values.
+**/docker-compose.yml
+!**/docker-compose.yml.sample
+
+# Live bind-mount data (app config, databases, backups, ...) -- never repo content.
+**/fs/
+
+# .env here holds a real MASTER_KEY, the MONGODB_URI and, once configured,
+# S3 (DO_*) and SMTP credentials -- see opensign/.env.sample
+opensign/.env

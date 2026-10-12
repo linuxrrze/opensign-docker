@@ -1,0 +1,89 @@
+# OpenSign self-hosted stack.
+#
+# Copy to docker-compose.yml and fill in .env (see .env.sample). Two of the
+# three app containers are built by this repo's CI and published to
+# ghcr.io (IMAGE_PREFIX in .env): opensign-client (React SPA) and opensign-server
+# (Node/Express + Parse.js API). The database is stock mongo:7 (no auth --
+# keep 27017 off the public internet, as upstream warns).
+#
+# Routing (mirrors upstream's Caddyfile, translated to this repo's traefik
+# labels): everything under /api goes to the server with the /api prefix
+# stripped (StripPrefix), because the server mounts its Parse.js API at /app
+# (PARSE_MOUNT) and serves uploaded files under /api/files/... after that
+# strip. Everything else is the React client. So set OPEN_PUBLIC_HOST to the
+# DNS name where both the client and /api must be reachable.
+#
+# A real deployment typically needs a reverse-proxy network (Traefik or
+# similar) -- add that back here per deployment; left out of the sample on
+# purpose.
+services:
+
+  client:
+    image: ${IMAGE_PREFIX:?set IMAGE_PREFIX in .env}/opensign-client:latest
+    container_name: opensign-client
+    restart: no
+    env_file: .env
+    environment:
+      # Injected by the image's entrypoint.sh into build/env.js at container
+      # start: the PUBLIC URL the browser uses to reach the API (routed to
+      # the server under /api, see the StripPrefix middleware below).
+      - REACT_APP_SERVERURL=https://${OPEN_PUBLIC_HOST}/api/app
+    ports:
+      - "3000:3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.opensign-web.rule=Host(`${OPEN_PUBLIC_HOST}`) && !PathPrefix(`/api`)"
+      - "traefik.http.routers.opensign-web.entrypoints=https"
+      - "traefik.http.routers.opensign-web.tls=true"
+      - "traefik.http.routers.opensign-web.tls.certresolver=letsEncrypt"
+      - "traefik.http.services.opensign-web.loadbalancer.server.port=3000"
+    depends_on:
+      - server
+
+  server:
+    image: ${IMAGE_PREFIX:?set IMAGE_PREFIX in .env}/opensign-server:latest
+    container_name: opensign-server
+    restart: no
+    env_file: .env
+    environment:
+      # Public URL the API uses to build file/storage URLs for the browser.
+      # pathname == /api/app makes the server derive origin .../api (its index.js).
+      - SERVER_URL=https://${OPEN_PUBLIC_HOST}/api/app
+      - PUBLIC_URL=https://${OPEN_PUBLIC_HOST}
+    ports:
+      - "8080:8080"
+    volumes:
+      # Local document storage (used when USE_LOCAL=true): server keeps its
+      # uploaded-file disk here, named volume so it survives container
+      # recreation. Not needed when DO_* S3-compatible storage is configured.
+      - opensign-files:/usr/src/app/files
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.opensign-api.rule=Host(`${OPEN_PUBLIC_HOST}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.opensign-api.entrypoints=https"
+      - "traefik.http.routers.opensign-api.tls=true"
+      - "traefik.http.routers.opensign-api.tls.certresolver=letsEncrypt"
+      - "traefik.http.routers.opensign-api.middlewares=opensign-api-strip@docker"
+      - "traefik.http.middlewares.opensign-api-strip.stripprefix.prefixes=/api"
+      - "traefik.http.services.opensign-api.loadbalancer.server.port=8080"
+    depends_on:
+      - mongo
+
+  mongo:
+    # Upstream uses mongo:latest with NO authentication -- keep 27017 off the
+    # public internet (upstream's explicit warning). Pinned here to a major
+    # for reproducibility.
+    image: mongo:7
+    container_name: opensign-mongo
+    restart: no
+    volumes:
+      - opensign-mongo:/data/db
+      # 27018->27017 so a local mongosh can reach it if you expose a port;
+      # remove the ports block entirely if you want mongo on the internal
+      # network only.
+    ports:
+      - "27018:27017"
+
+volumes:
+  opensign-files:
+  opensign-mongo:

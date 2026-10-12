@@ -1,0 +1,115 @@
+# Trivy vulnerability-ignore list for the opensign-server image
+# (used via --ignorefile in .github/workflows/opensign-server-rebuild.yml).
+#
+# WHY THESE ARE ACCEPTED
+# The OS layer is NOT ignored: the Dockerfile runs `apt-get dist-upgrade`
+# (refreshed every time the base image digest moves -- see
+# .opensign-server-base-digest), so the Debian packages + LibreOffice ship at
+# their latest point-release and the only fixable CRITICAL/HIGH findings left
+# in the image are the Node.js application + npm dependencies below. Every one
+# is either baked into the pinned node:22.14.0 image (the npm CLI's own
+# transitive tree) or pinned by upstream's apps/OpenSignServer/package-lock.json,
+# and each has a newer version on the npm registry that fixes it -- we just
+# can't move it without forking OpenSign's dependency tree or floating the
+# pinned node:22.14.0 base, both of which this repo deliberately avoids for
+# reproducibility.
+#
+# The 4 fixable CRITICAL findings in this image are tar (CVE-2026-59873, 3
+# hits in the npm CLI's bundled tree) and proxy-addr (OpenSign's own express
+# dependency). The old lodash / marked / minimist / underscore versions are no
+# longer in the image, so their ids were pruned on 2026-10-10.
+#
+# Lower severities and CVEs with no available fix are reported by Trivy but
+# don't block; only fixable CRITICAL/HIGH do (trivy-scan.sh), so a fresh CVE
+# in the OS layer or a dependency bump will fail the build until it's either
+# patched or explicitly added here with a reason.
+#
+# Re-check after a node:22.14.0 -> node:X.Y.Z base bump and after each
+# OpenSign release: a newer node bundles a newer npm (shrinking the
+# node-bundled set) and upstream may have bumped proxy-addr / axios / multer.
+# Prune ids Trivy no longer reports (stale entries would silently hide a
+# regression back to a vulnerable version).
+
+# --- node:22.14.0's bundled npm (the npm CLI's own dependency tree) --------
+# brace-expansion 2.0.1
+CVE-2026-102276
+CVE-2026-102278
+CVE-2026-13149
+CVE-2026-14257
+CVE-2026-69152
+
+# glob 10.4.5
+CVE-2025-64756
+
+# ip-address 9.0.5
+CVE-2026-69192
+
+# minimatch 9.0.5
+CVE-2026-26996
+CVE-2026-27903
+CVE-2026-27904
+
+# pacote 19.0.1 + 20.0.0
+CVE-2026-9496
+
+# sigstore 3.0.0
+CVE-2026-48815
+
+# tar 6.2.1 + 7.4.3
+CVE-2026-23745
+CVE-2026-23950
+CVE-2026-24842
+CVE-2026-26960
+CVE-2026-29786
+CVE-2026-31802
+CVE-2026-59873
+CVE-2026-59874
+CVE-2026-73566
+
+# --- Trivy DB 2026-10-09 refresh: new advisories vs the SAME pinned deps ------
+# The tracked OpenSign release did NOT move (still v2.41.3) -- Trivy just
+# published advisories against these already-pinned versions. The fix is still
+# waiting on an upstream OpenSign dep bump (or a lockfile override, which this
+# repo deliberately avoids). All in the apps/OpenSignServer tree. 20 ids; Trivy
+# reports 21 findings because the @graphql-tools/utils id hits two installed
+# versions (10.8.6 + 9.2.1).
+#
+# proxy-addr 2.0.7 (CRITICAL; express trust-proxy / IP-spoofing surface)
+CVE-2026-90711
+
+# @grpc/grpc-js 1.14.4 (auth bypass via improper peer-cert validation;
+# DoSpace/GCP push integrations)
+CVE-2026-101916
+
+# axios 1.19.0 (HTTP client: Mailgun / DoSpace / other API calls)
+CVE-2026-101898
+CVE-2026-101901
+CVE-2026-101903
+CVE-2026-101905
+CVE-2026-101906
+CVE-2026-101907
+CVE-2026-101909
+
+# multer 2.2.0 (file-upload surface; DoS)
+CVE-2026-77037
+CVE-2026-77078
+CVE-2026-82333
+
+# nodemailer 9.0.5 (SMTP outbound; quadratic-complexity DoS)
+GHSA-2x7j-588g-ccc2
+GHSA-v53p-9fqp-m79j
+
+# sharp 0.35.3 (image processing; bundled libheif / librsvg)
+GHSA-rgj7-g3m4-5g8c
+GHSA-wq5f-xc86-pv6w
+
+# undici 7.29.0 (HTTP client under gRPC/axios; DoS + cert-validation bypass)
+CVE-2026-19534
+CVE-2026-84961
+
+# js-yaml 3.15.1 (config parsing; DoS)
+CVE-2026-84375
+
+# @graphql-tools/utils 10.8.6 + 9.2.1 (GraphQL layer; DoS via prototype
+# pollution in mergeDeep)
+CVE-2026-104852

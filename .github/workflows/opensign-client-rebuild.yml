@@ -1,0 +1,212 @@
+# Builds the OpenSign web client. The Dockerfile is local (opensign-client/
+# docker/Dockerfile); it mirrors upstream's apps/OpenSign/Dockerhubfile
+# but is built against a fresh clone of the monorepo (the clone root is the
+# build context, so its COPY apps/OpenSign/... lines resolve). See
+# opensign-client/README.md.
+name: opensign-client - check upstream release & rebuild
+# Run title in the Actions list: scheduled/manual runs would otherwise show
+# the workflow name only. Empty (push) = GitHub's default (commit subject).
+run-name: ${{ github.event_name == 'schedule' && 'Scheduled check' || github.event_name == 'workflow_dispatch' && 'Manual run' || '' }}
+
+on:
+  schedule:
+    # daily at 06:15 UTC (staggered 15 min from opensign-server so the two
+    # version-bump pushes don't race).
+    - cron: '15 6 * * *'
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      # Only what goes into (or gates) the image -- not the README or the
+      # version/base-digest files. (Pushes made with GITHUB_TOKEN never
+      # trigger workflows anyway, but keep the filter tight for human pushes.)
+      - opensign-client/docker/**
+      - opensign-client/.trivyignore
+      - .github/workflows/opensign-client-rebuild.yml
+
+# GITHUB_TOKEN scopes: push the version-bump commit back to main, push the
+# image to ghcr.io.
+permissions:
+  contents: write
+  packages: write
+
+# Never run two builds of the same image at once (a manual run overlapping
+# the cron would race on the same tags + version file). Queue, don't cancel.
+concurrency:
+  group: opensign-client-rebuild
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: https://github.com/OpenSignLabs/OpenSign
+  UPSTREAM_API: https://api.github.com/repos/OpenSignLabs/OpenSign
+  # Local Dockerfile (mirrors upstream's apps/OpenSign/Dockerhubfile);
+  # the build context is the monorepo clone so its COPY
+  # apps/OpenSign/... lines resolve.
+  DOCKERFILE: opensign-client/docker/Dockerfile
+  REGISTRY: ghcr.io
+  IMAGE_NAME: opensign-client
+  VERSION_FILE: opensign-client/.opensign-client-version
+  # Digest of the Dockerfile's base image (node:22.14.0) the last build used.
+  BASE_DIGEST_FILE: opensign-client/.opensign-client-base-digest
+  CLONE_DIR: /tmp/opensign-src
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ghcr.io image names must be lowercase; github.repository_owner keeps
+      # the account's original casing.
+      - name: Set image name
+        run: |
+          OWNER=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE=$REGISTRY/$OWNER/$IMAGE_NAME" >> "$GITHUB_ENV"
+
+      - name: Determine latest OpenSign release
+        id: check
+        env:
+          # Authenticated API call: the anonymous limit (60/h per IP) is
+          # shared by every job on the same GitHub-hosted runner IP.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # per_page=1: only the most recent release is ever needed -- no
+          # truncating a longer list, so no early-pipe/SIGPIPE risk either.
+          LATEST=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+            "$UPSTREAM_API/releases?per_page=1" | jq -r '.[0].tag_name // empty')
+
+          if [ -z "$LATEST" ]; then
+            echo "::error::could not determine latest OpenSign release" >&2
+            exit 1
+          fi
+
+          CURRENT=$(cat "$VERSION_FILE" 2>/dev/null || echo none)
+
+          echo "opensign-client: current=$CURRENT latest=$LATEST"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$LATEST" != "$CURRENT" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Also rebuild when the base image is re-published under the same tag
+      # (Debian security updates reaching node:22.14.0), not only when the
+      # tracked OpenSign release moves -- the Dockerfile's dist-upgrade only
+      # helps when a build actually runs.
+      - name: Check base image digest
+        id: base
+        run: |
+          set -euo pipefail
+          DIGEST=$(bash .github/scripts/base-digest.sh "$DOCKERFILE")
+          CURRENT=$(cat "$BASE_DIGEST_FILE" 2>/dev/null || echo none)
+          echo "base image: current=$CURRENT latest=$DIGEST"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          if [ "$DIGEST" != "$CURRENT" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Clone upstream release
+        if: github.event_name != 'schedule' || steps.check.outputs.changed == 'true' || steps.base.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          rm -rf "$CLONE_DIR"
+          # A single-tag clone is enough: the Dockerfile does not reference
+          # git history or submodules, so no submodule init needed.
+          git clone --depth 1 --branch "${{ steps.check.outputs.latest }}" \
+            "$UPSTREAM_REPO" "$CLONE_DIR"
+
+      - name: Build image
+        if: github.event_name != 'schedule' || steps.check.outputs.changed == 'true' || steps.base.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          # Build the local Dockerfile with the monorepo clone as the context,
+          # so the COPY apps/OpenSign/... lines in it resolve. --pull
+          # keeps the node:22.14.0 base from being a stale cached copy.
+          # The org.opencontainers.image.source label links the ghcr.io
+          # package to this repo (repo permissions + package page README).
+          docker build --pull \
+            -f "$DOCKERFILE" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.version=${{ steps.check.outputs.latest }}" \
+            -t "$IMAGE:${{ steps.check.outputs.latest }}" \
+            -t "$IMAGE:latest" \
+            "$CLONE_DIR"
+
+      # Startup banner (image name + version, figlet style) as a thin layer
+      # on top of the built image, same tags -- see .github/scripts/add-banner.sh.
+      - name: Add startup banner
+        if: github.event_name != 'schedule' || steps.check.outputs.changed == 'true' || steps.base.outputs.changed == 'true'
+        run: |
+          bash .github/scripts/add-banner.sh \
+            "$IMAGE:${{ steps.check.outputs.latest }}" \
+            "$IMAGE:latest"
+
+      # Fail the publish on a fixable CRITICAL/HIGH. The OS layer is kept
+      # current by the Dockerfile's dist-upgrade (+ base-digest rebuild), so
+      # only the Node app deps remain -- those are the deliberately-accepted
+      # set in opensign-client/.trivyignore. Lower severities and CVEs with no
+      # available fix are reported but don't block.
+      - name: Security scan (Trivy)
+        if: github.event_name != 'schedule' || steps.check.outputs.changed == 'true' || steps.base.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          bash .github/scripts/trivy-scan.sh "$IMAGE:latest" \
+            --ignorefile opensign-client/.trivyignore
+
+      - name: Push image
+        if: github.event_name != 'schedule' || steps.check.outputs.changed == 'true' || steps.base.outputs.changed == 'true'
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" \
+            -u "$REGISTRY_USER" --password-stdin
+          docker push "$IMAGE:${{ steps.check.outputs.latest }}"
+          # Dated tag next to the moving version tag: a rebuild (push, base
+          # update) re-publishes the same version tag, this keeps the previous
+          # build pullable for a rollback.
+          DATED="$IMAGE:${{ steps.check.outputs.latest }}-$(date -u +%Y%m%d)"
+          docker tag "$IMAGE:${{ steps.check.outputs.latest }}" "$DATED"
+          docker push "$DATED"
+          docker push "$IMAGE:latest"
+
+      - name: Record built version
+        if: github.event_name != 'schedule' || steps.check.outputs.changed == 'true' || steps.base.outputs.changed == 'true'
+        run: |
+          echo "${{ steps.check.outputs.latest }}" > "$VERSION_FILE"
+          echo "${{ steps.base.outputs.digest }}" > "$BASE_DIGEST_FILE"
+          git config user.email "41898213+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add "$VERSION_FILE" "$BASE_DIGEST_FILE"
+          # A push-triggered rebuild with no upstream change and no base
+          # change writes identical content -- only commit/push when the
+          # tracked version or the base digest actually moved.
+          if git diff --cached --quiet; then
+            echo "no version change to record"
+            exit 0
+          fi
+          if [ "${{ steps.check.outputs.changed }}" = true ]; then
+            git commit -m "opensign-client: bump tracked release to ${{ steps.check.outputs.latest }}" -m "base image: ${{ steps.base.outputs.digest }}"
+          else
+            git commit -m "opensign-client: rebuild on updated base image ${{ steps.base.outputs.digest }}"
+          fi
+          # The opensign-server workflow can push its own version-bump commit
+          # around the same time -- retry with rebase on a non-fast-forward
+          # push instead of failing outright.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              break
+            fi
+            if [ "$attempt" = 5 ]; then
+              echo "::error::failed to push after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep $((RANDOM % 5 + 1))
+            git fetch origin main
+            git rebase origin/main
+          done
