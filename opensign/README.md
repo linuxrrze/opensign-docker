@@ -40,8 +40,11 @@ headless DOCX -> PDF conversion).
      point mongo elsewhere.
    - Email: set `SMTP_ENABLE=true` + the `SMTP_*` values (or the `MAILGUN_*`
      values) so verification + signing emails actually send.
-   - Optional: S3-compatible storage (`USE_LOCAL=false` + `DO_*`) and a signing
-     certificate (`PFX_BASE64` + `PASS_PHRASE`).
+   - Signing certificate (**required**): `PFX_BASE64` (base64 of a `.p12`)
+     + `PASS_PHRASE`. Without it every signing attempt fails with
+     `Too few bytes to parse DER`; `.env.sample` has the commands, including a
+     self-signed one to get started.
+   - Optional: S3-compatible storage (`USE_LOCAL=false` + `DO_*`).
 3. `docker compose up -d`
 
 The first browser visit runs OpenSign's own setup (create the first user /
@@ -103,6 +106,8 @@ raise the FCV to the new version (`db.adminCommand({setFeatureCompatibilityVersi
   grants full access to the Parse data layer.
 - **Email.** The app warns if no email provider is configured, and
   account-verification + signing-notification flows won't work until one is.
-- **Signing certificate.** A self-signed cert (OpenSign's docs include the steps)
-  won't show a valid green tick in Adobe Acrobat -- use one from an AATL-approved
-  CA if that matters.
+- **Signing certificate.** One certificate for the whole instance -- every
+  user's documents are sealed with it, so prefer an organization/seal
+  certificate over a personal one if others use the instance. A self-signed
+  cert works but won't show a valid green tick in Adobe Acrobat -- use one
+  from an AATL-approved CA if that matters.
