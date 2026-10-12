@@ -9,7 +9,7 @@ are built and published by this repo's CI, the database is stock Mongo.
 | --- | --- | --- |
 | `client` | `${IMAGE_PREFIX}/opensign-client:latest` | [`opensign-client/`](../opensign-client/) (CI) |
 | `server` | `${IMAGE_PREFIX}/opensign-server:latest` | [`opensign-server/`](../opensign-server/) (CI) |
-| `mongo` | `mongo:7` (stock, no auth) | pulled |
+| `mongo` | `mongo:8.2` (stock, no auth) | pulled |
 
 ## How the app is built
 
@@ -77,6 +77,22 @@ the `/api` route.
 | `.env.sample` | no | Template for `.env` -- app id, MASTER_KEY, MONGODB_URI, storage + email + signing config. |
 | `opensign-client/` | yes | The web-client image (CI builds it); see that dir's README. |
 | `opensign-server/` | yes | The Node/Parse server image (CI builds it); see that dir's README. |
+
+## MongoDB version
+
+`mongo` is pinned to `8.2` because existing data was written by 8.2 (its
+`featureCompatibilityVersion`, FCV, is `8.2`). mongod cannot start on data
+whose FCV is newer than itself -- an older image fails with
+`Invalid feature compatibility version value '8.2'; expected ...` -- so the
+pin must never go below the data's FCV. Check it with:
+
+```sh
+docker exec opensign-mongo mongosh --quiet --eval \
+  'db.adminCommand({getParameter: 1, featureCompatibilityVersion: 1})'
+```
+
+To upgrade later: bump the image one release at a time, start it, then
+raise the FCV to the new version (`db.adminCommand({setFeatureCompatibilityVersion: "<x.y>", confirm: true})`).
 
 ## Security
 

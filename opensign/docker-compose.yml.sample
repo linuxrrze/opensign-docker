@@ -3,7 +3,7 @@
 # Copy to docker-compose.yml and fill in .env (see .env.sample). Two of the
 # three app containers are built by this repo's CI and published to
 # ghcr.io (IMAGE_PREFIX in .env): opensign-client (React SPA) and opensign-server
-# (Node/Express + Parse.js API). The database is stock mongo:7 (no auth --
+# (Node/Express + Parse.js API). The database is stock mongo:8.2 (no auth --
 # keep 27017 off the public internet, as upstream warns).
 #
 # Routing (mirrors upstream's Caddyfile, translated to this repo's traefik
@@ -71,9 +71,14 @@ services:
 
   mongo:
     # Upstream uses mongo:latest with NO authentication -- keep 27017 off the
-    # public internet (upstream's explicit warning). Pinned here to a major
-    # for reproducibility.
-    image: mongo:7
+    # public internet (upstream's explicit warning). Pinned for
+    # reproducibility, to the release whose featureCompatibilityVersion the
+    # data in opensign-mongo was written with (8.2, via upstream's
+    # mongo:latest). Never pin BELOW that: mongod refuses to start on data
+    # with a newer FCV ("Invalid feature compatibility version value '8.2'").
+    # To upgrade, step one release at a time and raise the FCV afterwards --
+    # see opensign/README.md.
+    image: mongo:8.2
     container_name: opensign-mongo
     restart: no
     volumes:
