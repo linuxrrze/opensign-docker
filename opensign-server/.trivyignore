@@ -14,11 +14,12 @@
 # pinned node:22.14.0 base, both of which this repo deliberately avoids for
 # reproducibility.
 #
-# The 4 fixable CRITICAL findings in this image are tar (CVE-2026-59873, 3
-# hits in the npm CLI's bundled tree) and proxy-addr (OpenSign's own express
-# dependency). The old lodash / marked / minimist / underscore versions are no
-# longer in the image, so their ids were pruned on 2026-10-10.
-#
+# The fixable CRITICAL findings in this image are tar (CVE-2026-59873, in the
+# npm CLI's bundled tree). OpenSign v3.0.0 bumped proxy-addr / @grpc/grpc-js /
+# axios / sharp / undici / js-yaml / multer past their advisories, so those
+# ids were pruned on 2026-11-02 (the old lodash / marked / minimist /
+# underscore ones went on 2026-10-10).
+
 # Lower severities and CVEs with no available fix are reported by Trivy but
 # don't block; only fixable CRITICAL/HIGH do (trivy-scan.sh), so a fresh CVE
 # in the OS layer or a dependency bump will fail the build until it's either
@@ -66,50 +67,34 @@ CVE-2026-59873
 CVE-2026-59874
 CVE-2026-73566
 
-# --- Trivy DB 2026-10-09 refresh: new advisories vs the SAME pinned deps ------
-# The tracked OpenSign release did NOT move (still v2.41.3) -- Trivy just
-# published advisories against these already-pinned versions. The fix is still
-# waiting on an upstream OpenSign dep bump (or a lockfile override, which this
-# repo deliberately avoids). All in the apps/OpenSignServer tree. 20 ids; Trivy
-# reports 21 findings because the @graphql-tools/utils id hits two installed
-# versions (10.8.6 + 9.2.1).
+# --- apps/OpenSignServer dependency tree (OpenSign v3.0.0) -------------------
+# Pinned by upstream's package-lock.json (or resolved by its plain
+# `npm install`); each fix is waiting on an upstream OpenSign dep bump (or a
+# lockfile override, which this repo deliberately avoids).
 #
-# proxy-addr 2.0.7 (CRITICAL; express trust-proxy / IP-spoofing surface)
-CVE-2026-90711
-
-# @grpc/grpc-js 1.14.4 (auth bypass via improper peer-cert validation;
-# DoSpace/GCP push integrations)
-CVE-2026-101916
-
-# axios 1.19.0 (HTTP client: Mailgun / DoSpace / other API calls)
-CVE-2026-101898
-CVE-2026-101901
-CVE-2026-101903
-CVE-2026-101905
-CVE-2026-101906
-CVE-2026-101907
-CVE-2026-101909
-
-# multer 2.2.0 (file-upload surface; DoS)
-CVE-2026-77037
-CVE-2026-77078
-CVE-2026-82333
-
-# nodemailer 9.0.5 (SMTP outbound; quadratic-complexity DoS)
-GHSA-2x7j-588g-ccc2
-GHSA-v53p-9fqp-m79j
-
-# sharp 0.35.3 (image processing; bundled libheif / librsvg)
-GHSA-rgj7-g3m4-5g8c
-GHSA-wq5f-xc86-pv6w
-
-# undici 7.29.0 (HTTP client under gRPC/axios; DoS + cert-validation bypass)
-CVE-2026-19534
-CVE-2026-84961
-
-# js-yaml 3.15.1 (config parsing; DoS)
-CVE-2026-84375
-
-# @graphql-tools/utils 10.8.6 + 9.2.1 (GraphQL layer; DoS via prototype
-# pollution in mergeDeep)
+# @graphql-tools/utils 10.11.0 + 9.2.1 (GraphQL layer; prototype pollution in
+# mergeDeep / mergeIncrementalResult)
 CVE-2026-104852
+CVE-2026-114604
+
+# body-parser 2.3.0 (express request parsing; DoS via decompression error)
+CVE-2026-111181
+
+# follow-redirects 1.16.1 (axios transitive; cross-origin info disclosure)
+CVE-2026-116689
+
+# multer 2.4.0 (file-upload surface; DoS via aborted request)
+CVE-2026-113872
+
+# node-forge 1.4.0 (signing-certificate / PKCS#12 handling; TLS-record DoS
+# and parser issues)
+CVE-2026-118779
+CVE-2026-118782
+CVE-2026-119187
+CVE-2026-119188
+CVE-2026-119190
+
+# nodemailer 9.1.1 (SMTP outbound; DoS via crafted headers / quadratic
+# complexity)
+CVE-2026-90776
+GHSA-v53p-9fqp-m79j
