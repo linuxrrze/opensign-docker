@@ -21,7 +21,7 @@
 #
 # Re-check after a node:22.14.0 -> node:X.Y.Z base bump and after each
 # OpenSign release: a newer node bundles a newer npm (shrinking the
-# node-bundled set) and upstream may have bumped axios / fast-uri / undici.
+# node-bundled set) and upstream may have bumped vue-i18n / follow-redirects.
 # Prune ids Trivy no longer reports (stale entries would silently hide a
 # regression back to a vulnerable version).
 
@@ -61,32 +61,14 @@ CVE-2026-59873
 CVE-2026-59874
 CVE-2026-73566
 
-# --- apps/OpenSign (React/Vite SPA) dependency tree -------------------------
-# axios 1.19.0 (direct dependency)
-CVE-2026-101898
-CVE-2026-101901
-CVE-2026-101903
-CVE-2026-101905
-CVE-2026-101906
-CVE-2026-101907
-CVE-2026-101909
+# --- apps/OpenSign (React/Vite SPA) dependency tree (OpenSign v3.1.0) -------
+# OpenSign v3.x bumped axios / fast-uri / undici / js-yaml / shell-quote /
+# source-map-js past their advisories, so those ids were pruned on 2026-11-02.
+#
+# vue-i18n + @intlify/core-base + @intlify/shared 11.4.2
+# (@eid-easy/eideasy-widget transitive -- the eID signing widget bundles Vue;
+# XSS via iframe srcdoc sanitization in translated messages)
+CVE-2026-118257
 
-# fast-uri 3.1.5 (ajv transitive)
-CVE-2026-75899
-CVE-2026-75931
-CVE-2026-75975
-CVE-2026-76172
-CVE-2026-84292
-
-# undici 7.29.0 (cheerio / jsdom transitive)
-CVE-2026-19534
-CVE-2026-84961
-
-# js-yaml 3.15.1 (@eslint/eslintrc / cosmiconfig transitive)
-CVE-2026-84375
-
-# shell-quote 1.9.0 (concurrently transitive)
-CVE-2026-102422
-
-# source-map-js 1.2.1 (css-tree / postcss transitive)
-CVE-2026-93749
+# follow-redirects 1.16.1 (axios transitive; cross-origin info disclosure)
+CVE-2026-116689
